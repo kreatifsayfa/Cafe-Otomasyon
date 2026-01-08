@@ -176,6 +176,7 @@ switch($tip) {
 }
 
 fclose($output);
+@ob_end_flush();
 exit;
 ?>
 

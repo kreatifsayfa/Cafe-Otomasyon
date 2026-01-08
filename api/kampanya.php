@@ -178,7 +178,7 @@ switch($action) {
         break;
 }
 
-@ob_end_clean();
+@ob_end_flush();
 ?>
 
 
