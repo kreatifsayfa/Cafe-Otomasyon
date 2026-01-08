@@ -496,6 +496,6 @@ switch($action) {
 }
 
 // Output buffer'ı temizle ve kapat
-@ob_end_clean();
+@ob_end_flush();
 ?>
 
