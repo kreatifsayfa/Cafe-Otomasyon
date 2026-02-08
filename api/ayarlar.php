@@ -149,10 +149,10 @@ switch($action) {
         $yazicilar = [];
         
         if (strtoupper(substr(PHP_OS, 0, 3)) === 'WIN') {
-            // Yöntem 1: WMIC ile yazıcıları listele (en güvenilir)
+            // Yöntem 1: WMIC ile yazıcıları listele
             $command = 'wmic printer get name,portname /format:list';
             exec($command, $output, $return_var);
-            
+
             if ($return_var === 0 && !empty($output)) {
                 $current_name = '';
                 $current_port = '';
@@ -161,27 +161,21 @@ switch($action) {
                     if (strpos($line, 'Name=') === 0) {
                         $name = substr($line, 5);
                         if (!empty($name) && $name !== $current_name) {
-                            // Önceki yazıcıyı kaydet
                             if (!empty($current_name)) {
                                 $ip = '';
                                 $port = 9100;
-                                
+
                                 if (!empty($current_port)) {
-                                    // IP_192.168.1.100 formatı
-                                    if (preg_match('/IP_([0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3})/', $current_port, $matches)) {
+                                    if (preg_match('/IP_([0-9]{1,3}(?:\.[0-9]{1,3}){3})/', $current_port, $matches)) {
                                         $ip = $matches[1];
-                                    }
-                                    // 192.168.1.100 formatı
-                                    elseif (preg_match('/([0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3})/', $current_port, $matches)) {
+                                    } elseif (preg_match('/([0-9]{1,3}(?:\.[0-9]{1,3}){3})/', $current_port, $matches)) {
                                         $ip = $matches[1];
-                                    }
-                                    // IP:PORT formatı
-                                    elseif (preg_match('/([0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}):([0-9]+)/', $current_port, $matches)) {
+                                    } elseif (preg_match('/([0-9]{1,3}(?:\.[0-9]{1,3}){3}):([0-9]+)/', $current_port, $matches)) {
                                         $ip = $matches[1];
                                         $port = intval($matches[2]);
                                     }
                                 }
-                                
+
                                 $yazicilar[] = [
                                     'name' => $current_name,
                                     'display_name' => $current_name . (!empty($ip) ? ' (' . $ip . ')' : ''),
@@ -196,28 +190,22 @@ switch($action) {
                         $current_port = substr($line, 9);
                     }
                 }
-                
-                // Son yazıcıyı kaydet
+
                 if (!empty($current_name)) {
                     $ip = '';
                     $port = 9100;
-                    
+
                     if (!empty($current_port)) {
-                        // IP_192.168.1.100 formatı
-                        if (preg_match('/IP_([0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3})/', $current_port, $matches)) {
+                        if (preg_match('/IP_([0-9]{1,3}(?:\.[0-9]{1,3}){3})/', $current_port, $matches)) {
                             $ip = $matches[1];
-                        }
-                        // 192.168.1.100 formatı
-                        elseif (preg_match('/([0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3})/', $current_port, $matches)) {
+                        } elseif (preg_match('/([0-9]{1,3}(?:\.[0-9]{1,3}){3})/', $current_port, $matches)) {
                             $ip = $matches[1];
-                        }
-                        // IP:PORT formatı
-                        elseif (preg_match('/([0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}):([0-9]+)/', $current_port, $matches)) {
+                        } elseif (preg_match('/([0-9]{1,3}(?:\.[0-9]{1,3}){3}):([0-9]+)/', $current_port, $matches)) {
                             $ip = $matches[1];
                             $port = intval($matches[2]);
                         }
                     }
-                    
+
                     $yazicilar[] = [
                         'name' => $current_name,
                         'display_name' => $current_name . (!empty($ip) ? ' (' . $ip . ')' : ''),
@@ -226,28 +214,65 @@ switch($action) {
                     ];
                 }
             }
-            
-        } else {
-            // Linux için lpstat komutu
-            exec('lpstat -p 2>/dev/null | awk \'{print $2}\'', $output, $return_var);
-            if ($return_var === 0 && !empty($output)) {
-                foreach ($output as $printer_name) {
-                    $printer_name = trim($printer_name);
-                    if (!empty($printer_name)) {
-                        // Linux'ta IP bilgisini almak için lpoptions kullan
-                        $ip = '';
-                        $port = 9100;
-                        exec("lpoptions -p $printer_name -l 2>/dev/null | grep -i 'device-uri'", $lp_output);
-                        if (!empty($lp_output)) {
-                            $uri = implode(' ', $lp_output);
-                            if (preg_match('/([0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3})/', $uri, $matches)) {
-                                $ip = $matches[1];
-                            }
-                            if (preg_match('/:([0-9]+)/', $uri, $matches)) {
-                                $port = intval($matches[1]);
+
+            // Yöntem 2: PowerShell ile yazıcıları listele (WMIC yoksa)
+            if (empty($yazicilar)) {
+                $ps_command = 'powershell -NoProfile -Command "Get-Printer | Select-Object -ExpandProperty Name"';
+                exec($ps_command, $ps_output, $ps_return);
+
+                $port_command = 'powershell -NoProfile -Command "Get-Printer | Select-Object Name,PortName | ConvertTo-Json"';
+                exec($port_command, $port_output, $port_return);
+
+                $port_map = [];
+                if ($port_return === 0 && !empty($port_output)) {
+                    $decoded = json_decode(implode('', $port_output), true);
+                    if (is_array($decoded)) {
+                        $entries = isset($decoded[0]) ? $decoded : [$decoded];
+                        foreach ($entries as $entry) {
+                            if (!empty($entry['Name']) && !empty($entry['PortName'])) {
+                                $port_map[$entry['Name']] = $entry['PortName'];
                             }
                         }
-                        
+                    }
+                }
+
+                $port_info_command = 'powershell -NoProfile -Command "Get-PrinterPort | Select-Object Name,PrinterHostAddress,PortNumber | ConvertTo-Json"';
+                exec($port_info_command, $port_info_output, $port_info_return);
+                $port_info_map = [];
+                if ($port_info_return === 0 && !empty($port_info_output)) {
+                    $decoded_ports = json_decode(implode('', $port_info_output), true);
+                    if (is_array($decoded_ports)) {
+                        $entries = isset($decoded_ports[0]) ? $decoded_ports : [$decoded_ports];
+                        foreach ($entries as $entry) {
+                            if (!empty($entry['Name'])) {
+                                $port_info_map[$entry['Name']] = [
+                                    'ip' => $entry['PrinterHostAddress'] ?? '',
+                                    'port' => $entry['PortNumber'] ?? 9100
+                                ];
+                            }
+                        }
+                    }
+                }
+
+                if ($ps_return === 0 && !empty($ps_output)) {
+                    foreach ($ps_output as $printer_name) {
+                        $printer_name = trim($printer_name);
+                        if (empty($printer_name)) {
+                            continue;
+                        }
+
+                        $ip = '';
+                        $port = 9100;
+                        if (!empty($port_map[$printer_name])) {
+                            $port_name = $port_map[$printer_name];
+                            if (!empty($port_info_map[$port_name]['ip'])) {
+                                $ip = $port_info_map[$port_name]['ip'];
+                            }
+                            if (!empty($port_info_map[$port_name]['port'])) {
+                                $port = intval($port_info_map[$port_name]['port']);
+                            }
+                        }
+
                         $yazicilar[] = [
                             'name' => $printer_name,
                             'display_name' => $printer_name . (!empty($ip) ? ' (' . $ip . ')' : ''),
@@ -255,6 +280,48 @@ switch($action) {
                             'port' => $port
                         ];
                     }
+                }
+            }
+            
+        } else {
+            // Linux için lpstat komutu
+            exec('lpstat -p 2>/dev/null | awk \'{print $2}\'', $output, $return_var);
+            $uri_map = [];
+            exec('lpstat -v 2>/dev/null', $uri_output, $uri_return);
+            if ($uri_return === 0 && !empty($uri_output)) {
+                foreach ($uri_output as $line) {
+                    if (preg_match('/device for ([^:]+): (.+)$/', $line, $matches)) {
+                        $uri_map[trim($matches[1])] = trim($matches[2]);
+                    }
+                }
+            }
+
+            if ($return_var === 0 && !empty($output)) {
+                foreach ($output as $printer_name) {
+                    $printer_name = trim($printer_name);
+                    if (empty($printer_name)) {
+                        continue;
+                    }
+
+                    $ip = '';
+                    $port = 9100;
+                    $uri = $uri_map[$printer_name] ?? '';
+
+                    if (!empty($uri)) {
+                        if (preg_match('/([0-9]{1,3}(?:\.[0-9]{1,3}){3})/', $uri, $matches)) {
+                            $ip = $matches[1];
+                        }
+                        if (preg_match('/:([0-9]+)/', $uri, $matches)) {
+                            $port = intval($matches[1]);
+                        }
+                    }
+
+                    $yazicilar[] = [
+                        'name' => $printer_name,
+                        'display_name' => $printer_name . (!empty($ip) ? ' (' . $ip . ')' : ''),
+                        'ip' => $ip,
+                        'port' => $port
+                    ];
                 }
             }
         }
@@ -278,4 +345,3 @@ switch($action) {
         break;
 }
 ?>
-

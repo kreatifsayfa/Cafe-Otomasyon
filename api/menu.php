@@ -17,10 +17,13 @@ try {
     exit();
 }
 
-checkLoginAPI();
-
 $method = $_SERVER['REQUEST_METHOD'];
 $action = $_GET['action'] ?? '';
+$public_actions = ['kategoriler', 'urunler'];
+
+if (!in_array($action, $public_actions, true)) {
+    checkLoginAPI();
+}
 
 switch($action) {
     case 'kategoriler':
@@ -249,4 +252,3 @@ switch($action) {
         break;
 }
 ?>
-
