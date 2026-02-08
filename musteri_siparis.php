@@ -1,12 +1,6 @@
 <?php
 require_once 'config/config.php';
 
-// QR menü için sadece garson girişi kontrolü
-if (!isset($_SESSION['personel_id']) || $_SESSION['rol'] != 'garson') {
-    header('Location: ' . BASE_URL . 'garson_giris.php?redirect=' . urlencode($_SERVER['REQUEST_URI']));
-    exit();
-}
-
 $masa_id = isset($_GET['masa_id']) ? intval($_GET['masa_id']) : 0;
 
 $stmt = $db->prepare("SELECT * FROM masa WHERE id = ?");
@@ -172,7 +166,7 @@ if (!$masa) {
                 toplam_fiyat: item.fiyat * item.adet
             }));
             
-            fetch(apiUrl('siparis.php?action=yeni'), {
+            fetch(apiUrl('siparis.php?action=yeni&qr=1'), {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({

@@ -20,19 +20,13 @@ require_once '../config/config.php';
     exit();
 }
 
-checkLoginAPI();
-
-// QR menüden gelen istekler için garson kontrolü
-$is_qr_request = isset($_SERVER['HTTP_REFERER']) && strpos($_SERVER['HTTP_REFERER'], 'musteri_siparis.php') !== false;
-if ($is_qr_request && $_SESSION['rol'] != 'garson') {
-    @ob_clean();
-    echo json_encode(['success' => false, 'message' => 'Bu işlem için garson girişi gereklidir']);
-    @ob_end_flush();
-    exit();
-}
-
 $method = $_SERVER['REQUEST_METHOD'];
 $action = $_GET['action'] ?? '';
+$is_qr_request = $action === 'yeni' && (isset($_GET['qr']) && $_GET['qr'] === '1');
+
+if (!$is_qr_request) {
+    checkLoginAPI();
+}
 
 function generateSiparisNo($db) {
     $tarih = date('Ymd');
@@ -67,6 +61,24 @@ function generateSiparisNo($db) {
     return 'SP-' . $tarih . '-' . str_pad($numara, 4, '0', STR_PAD_LEFT) . '-' . $timestamp;
 }
 
+function getQrPersonelId($db) {
+    $stmt = $db->query("SELECT id FROM personel WHERE rol = 'garson' AND durum = 'aktif' ORDER BY id LIMIT 1");
+    $personel = $stmt->fetch();
+    if ($personel) {
+        return $personel['id'];
+    }
+
+    $stmt = $db->query("SELECT id FROM personel WHERE rol = 'admin' AND durum = 'aktif' ORDER BY id LIMIT 1");
+    $personel = $stmt->fetch();
+    if ($personel) {
+        return $personel['id'];
+    }
+
+    $stmt = $db->query("SELECT id FROM personel WHERE durum = 'aktif' ORDER BY id LIMIT 1");
+    $personel = $stmt->fetch();
+    return $personel ? $personel['id'] : null;
+}
+
 switch($action) {
     case 'yeni':
         if ($method == 'POST') {
@@ -74,6 +86,18 @@ switch($action) {
             $masa_id = intval($data['masa_id']);
             $musteri_id = isset($data['musteri_id']) ? intval($data['musteri_id']) : null;
             $urunler = $data['urunler'];
+            $personel_id = $_SESSION['personel_id'] ?? null;
+
+            if (!$personel_id && $is_qr_request) {
+                $personel_id = getQrPersonelId($db);
+            }
+
+            if (!$personel_id) {
+                @ob_clean();
+                echo json_encode(['success' => false, 'message' => 'Sipariş için aktif personel bulunamadı. Lütfen yöneticiyle iletişime geçin.']);
+                @ob_end_flush();
+                exit();
+            }
             
             try {
                 $db->beginTransaction();
@@ -82,7 +106,7 @@ switch($action) {
                 $siparis_no = generateSiparisNo($db);
                 $stmt = $db->prepare("INSERT INTO siparis (masa_id, musteri_id, personel_id, siparis_no) 
                                      VALUES (?, ?, ?, ?)");
-                $stmt->execute([$masa_id, $musteri_id, $_SESSION['personel_id'], $siparis_no]);
+                $stmt->execute([$masa_id, $musteri_id, $personel_id, $siparis_no]);
                 $siparis_id = $db->lastInsertId();
                 
                 // Sipariş detaylarını ekle
@@ -498,4 +522,3 @@ switch($action) {
 // Output buffer'ı temizle ve kapat
 @ob_end_clean();
 ?>
-
