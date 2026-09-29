@@ -94,6 +94,20 @@ def smooth(t):
     return t * t * (3 - 2 * t)
 
 
+def tr_buyuk(metin):
+    return metin.replace("i", "İ").replace("ı", "I").upper()
+
+
+def tr_kucuk(metin):
+    return metin.replace("İ", "i").replace("I", "ı").lower()
+
+
+def tarih_duz(metin):
+    """'13 ŞUBAT 2023' -> '13 Şubat 2023'"""
+    return " ".join(k if k.isdigit() else tr_kucuk(k)[:1].upper().replace("İ", "İ") + tr_kucuk(k)[1:]
+                    for k in metin.split())
+
+
 def smooth_arr(x):
     x = np.clip(x, 0, 1)
     return x * x * (3 - 2 * x)
@@ -269,19 +283,24 @@ class Kurgu:
         s = self.s = (G if self.dikey else Y) / 1080
         self.kenar = int((0.08 if self.dikey else 0.07) * G)
         F = lambda ad, px: ImageFont.truetype(FONT(ad), int(px * s))
+        d = self.dikey
         self.f = {
-            "saat": F("IBMPlexMono_400Regular.ttf", 168),
-            "etiket": F("IBMPlexMono_500Medium.ttf", 26),
-            "alt": F("Inter_500Medium.ttf", 44 if self.dikey else 40),
-            "kart": F("Inter_300Light.ttf", 76 if self.dikey else 84),
-            "il": F("Inter_500Medium.ttf", 96 if self.dikey else 88),
-            "anma": F("Inter_300Light.ttf", 64 if self.dikey else 66),
-            "isim": F("Inter_600SemiBold.ttf", 54),
-            "unvan": F("Inter_400Regular.ttf", 32),
-            "kunye": F("Inter_400Regular.ttf", 26 if self.dikey else 25),
+            "saat": F("Cinzel_400Regular.ttf", 150 if d else 176),
+            "ust": F("Cinzel_500Medium.ttf", 26),
+            "sehir": F("Cinzel_500Medium.ttf", 30 if d else 28),
+            "tarih": F("CormorantGaramond_400Regular_Italic.ttf", 32 if d else 30),
+            "alt": F("SourceSans3_400Regular.ttf", 44 if d else 42),
+            "kart": F("CormorantGaramond_300Light_Italic.ttf", 92 if d else 104),
+            "il": F("Cinzel_400Regular.ttf", 84 if d else 80),
+            "sayac": F("Cinzel_400Regular.ttf", 34),
+            "anma": F("CormorantGaramond_300Light.ttf", 72 if d else 78),
+            "isim": F("Cinzel_500Medium.ttf", 44),
+            "unvan": F("CormorantGaramond_400Regular_Italic.ttf", 38),
+            "kunye_bas": F("Cinzel_500Medium.ttf", 22),
+            "kunye": F("SourceSans3_400Regular.ttf", 25 if d else 24),
         }
         rng = np.random.default_rng(2023)
-        self.gren = [rng.normal(0, 7, (Y, G, 1)).astype(np.float32) for _ in range(6)]
+        self.gren = [rng.normal(0, 5, (Y, G, 1)).astype(np.float32) for _ in range(6)]
         yy, xx = np.mgrid[0:Y, 0:G].astype(np.float32)
         r = np.sqrt(((xx - G / 2) / (G / 2)) ** 2 + ((yy - Y / 2) / (Y / 2)) ** 2)
         vinyet = np.clip(1.05 - 0.45 * r ** 2.2, 0.3, 1.0)
@@ -337,9 +356,9 @@ class Kurgu:
             ox = G / 2 - (x1 - x0) * 0.66 * olc
             oy = Y * 0.36 - (y1 - y0) * 0.62 * olc
         else:
-            olc = G * 0.80 / (x1 - x0)
-            ox = G * 0.14
-            oy = Y * 0.44 - (y1 - y0) * olc / 2
+            olc = G * 0.66 / (x1 - x0)
+            ox = (G - (x1 - x0) * olc) / 2
+            oy = Y * 0.36 - (y1 - y0) * olc / 2
         self.harita = {ad: [[((x - x0) * olc + ox, (y - y0) * olc + oy) for x, y in par] for par in p]
                        for ad, p in iller.items()}
         self.harita_taban = Image.new("RGBA", (G, Y), (0, 0, 0, 0))
@@ -368,17 +387,42 @@ class Kurgu:
         sat.append(cur)
         return sat
 
-    def yazi(self, img, xy, metin, font, renk, alfa=1.0, golge=True, anchor="la"):
+    def genislik(self, metin, font, iz=0.0):
+        return font.getlength(metin) + iz * font.size * max(0, len(metin) - 1)
+
+    def _ciz(self, d, xy, metin, font, fill, anchor, iz):
+        if not iz:
+            d.text(xy, metin, font=font, fill=fill, anchor=anchor)
+            return
+        # harf aralıklı (tracking) çizim
+        w = self.genislik(metin, font, iz)
+        x = xy[0] - {"l": 0, "m": w / 2, "r": w}[anchor[0]]
+        for c in metin:
+            d.text((x, xy[1]), c, font=font, fill=fill, anchor="l" + anchor[1])
+            x += font.getlength(c) + iz * font.size
+
+    def yazi(self, img, xy, metin, font, renk, alfa=1.0, golge=True, anchor="la", iz=0.0):
         if alfa <= 0:
             return
         if golge:
             g = Image.new("RGBA", img.size, (0, 0, 0, 0))
-            ImageDraw.Draw(g).text((xy[0], xy[1] + 2 * self.s), metin, font=font,
-                                   fill=(0, 0, 0, int(220 * alfa)), anchor=anchor)
-            img.alpha_composite(g.filter(ImageFilter.GaussianBlur(5 * self.s)))
+            self._ciz(ImageDraw.Draw(g), (xy[0], xy[1] + 2 * self.s), metin, font,
+                      (0, 0, 0, int(230 * alfa)), anchor, iz)
+            img.alpha_composite(g.filter(ImageFilter.GaussianBlur(6 * self.s)))
         katman = Image.new("RGBA", img.size, (0, 0, 0, 0))
-        ImageDraw.Draw(katman).text(xy, metin, font=font, fill=tuple(renk) + (int(255 * alfa),), anchor=anchor)
+        self._ciz(ImageDraw.Draw(katman), xy, metin, font, tuple(renk) + (int(255 * alfa),), anchor, iz)
         img.alpha_composite(katman)
+
+    def saat(self, img, metin, y, alfa):
+        """Rakamlar sabit genişlikte kutulara yerleşir; saniyeler değişirken yazı kaymaz."""
+        f = self.f["saat"]
+        kutu = max(f.getlength(str(r)) for r in range(10)) * 1.02
+        iki_nokta = f.getlength(":") * 1.6
+        genis = [iki_nokta if c == ":" else kutu for c in metin]
+        x = (self.G - sum(genis)) / 2
+        for c, w in zip(metin, genis):
+            self.yazi(img, (x + w / 2, y), c, f, BEYAZ, alfa, False, "ms")
+            x += w
 
     def altyazi(self, img, zt):
         T = self.T
@@ -404,10 +448,8 @@ class Kurgu:
         if T["saat_bas"] - 0.6 <= zt < T["kesme"]:
             sn = 54 + max(0, int(zt - T["saat_bas"]))
             a = smooth((zt - T["saat_bas"] + 0.6) / 0.8)
-            self.yazi(img, (G / 2, Y / 2 + 55 * s), f"04:{16 + sn // 60:02d}:{sn % 60:02d}", self.f["saat"],
-                      BEYAZ, a, False, "ms")
-            self.yazi(img, (G / 2, Y / 2 - 120 * s), "6 ŞUBAT 2023  ·  PAZARTESİ", self.f["etiket"], GRI, a,
-                      False, "ms")
+            self.saat(img, f"04:{16 + sn // 60:02d}:{sn % 60:02d}", Y / 2 + 60 * s, a)
+            self.yazi(img, (G / 2, Y / 2 - 125 * s), "6 ŞUBAT 2023", self.f["ust"], GRI, a, False, "ms", iz=0.45)
             if zt >= T["sarsinti"]:
                 u = zt - T["sarsinti"]
                 sars = min(1.0, u / 0.15) * (0.8 + 0.2 * math.sin(u * 23))
@@ -429,45 +471,52 @@ class Kurgu:
                         k = k.copy()
                         k.putalpha(k.getchannel("A").point(lambda v, a=smooth(u / 0.5): int(v * a)))
                     img.alpha_composite(k)
-            x0 = self.kenar
-            ey = Y * (0.70 if self.dikey else 0.84)
-            self.yazi(img, (x0, ey - 115 * s), f"DEPREMDEN ETKİLENEN İLLER  ·  {son + 1:02d}/11",
-                      self.f["etiket"], GRI, clamp((zt - T["c0"]) / 0.4), False)
+            ey = Y * (0.72 if self.dikey else 0.84)
+            ba = clamp((zt - T["c0"]) / 0.6)
+            self.yazi(img, (G / 2, ey - 125 * s), "DEPREMDEN ETKİLENEN İLLER", self.f["ust"], GRI, ba, False,
+                      "ms", iz=0.45)
             if son >= 0:
                 u = zt - T[f"il{son}"]
-                dy = (1 - expo_out(u / 0.6)) * 20 * s
-                self.yazi(img, (x0 - 4 * s, ey + dy), ILLER[son], self.f["il"], BEYAZ, clamp(u / 0.25), False, "ls")
+                dy = (1 - expo_out(u / 0.6)) * 16 * s
+                self.yazi(img, (G / 2, ey + dy), tr_buyuk(ILLER[son]), self.f["il"], BEYAZ, clamp(u / 0.3), False,
+                          "ms", iz=0.12)
+
 
         elif T["F"] <= zt:
             parlak = smooth((T["son"] - zt) / 1.2)
             x0 = self.kenar
             if zt < T["kunye"]:
-                a = smooth((zt - T["f1"]) / 1.0) * smooth((T["kunye"] - zt) / 0.8)
+                a = smooth((zt - T["f1"]) / 1.2) * smooth((T["kunye"] - zt) / 0.8)
                 f = self.f["anma"]
-                gen = G - 2 * x0 if self.dikey else G * 0.6
-                ust = Y * (0.30 if self.dikey else 0.28)
+                gen = G - 2 * x0 if self.dikey else G * 0.62
                 asc, desc = f.getmetrics()
-                for i, sat in enumerate(self.sar(METIN["f1"], f, gen)):
-                    self.yazi(img, (x0, ust + i * (asc + desc) * 1.2), sat, f, BEYAZ, a, False)
+                lh = (asc + desc) * 1.12
+                satirlar = self.sar(METIN["f1"], f, gen)
+                ust = Y * (0.40 if self.dikey else 0.36) - len(satirlar) * lh / 2
+                for i, sat in enumerate(satirlar):
+                    self.yazi(img, (G / 2, ust + (i + 1) * lh), sat, f, BEYAZ, a, False, "ms")
                 ti = zt - T["imza"]
                 if ti > 0:
-                    b = smooth(ti / 1.0) * smooth((T["kunye"] - zt) / 0.8)
-                    iy = Y - (420 if self.dikey else 260) * s
-                    w = 64 * s * expo_out(ti / 1.2)
-                    ImageDraw.Draw(img).rectangle([x0, iy - 80 * s, x0 + w, iy - 77 * s],
-                                                  fill=KIRMIZI + (int(255 * b),))
-                    self.yazi(img, (x0, iy), BASKAN_ADI, self.f["isim"], BEYAZ, b, False, "ls")
-                    self.yazi(img, (x0, iy + 54 * s), UNVAN, self.f["unvan"], GRI, b, False, "ls")
+                    b = smooth(ti / 1.2) * smooth((T["kunye"] - zt) / 0.8)
+                    iy = Y * (0.66 if self.dikey else 0.70)
+                    w = 36 * s * expo_out(ti / 1.4)
+                    ImageDraw.Draw(img).line([(G / 2 - w, iy - 78 * s), (G / 2 + w, iy - 78 * s)],
+                                             fill=(150, 140, 125, int(255 * b)), width=max(1, int(1.5 * s)))
+                    self.yazi(img, (G / 2, iy), tr_buyuk(BASKAN_ADI), self.f["isim"], BEYAZ, b, False, "ms", iz=0.22)
+                    self.yazi(img, (G / 2, iy + 56 * s), UNVAN, self.f["unvan"], (185, 180, 172), b, False, "ms")
             else:
                 a = smooth((zt - T["kunye"]) / 0.8)
                 f = self.f["kunye"]
                 asc, desc = f.getmetrics()
-                y = Y * (0.36 if self.dikey else 0.34)
-                for p in KUNYE:
-                    for sat in self.sar(p, f, G - 2 * x0):
-                        self.yazi(img, (x0, y), sat, f, (170, 170, 170), a, False)
-                        y += (asc + desc) * 1.35
-                    y += (asc + desc) * 0.6
+                y = Y * (0.36 if self.dikey else 0.33)
+                for baslik, satirlar in KUNYE:
+                    self.yazi(img, (G / 2, y), baslik, self.f["kunye_bas"], (200, 195, 185), a, False, "ms", iz=0.4)
+                    y += (asc + desc) * 1.6
+                    for p in satirlar:
+                        for sat in self.sar(p, f, G - 2 * x0):
+                            self.yazi(img, (G / 2, y), sat, f, (160, 160, 160), a, False, "ms")
+                            y += (asc + desc) * 1.3
+                    y += (asc + desc) * 1.2
 
         # fotoğraflı çekimler (çekimler arası 0.5 sn çapraz geçiş)
         for bas, son, ad, et, fx, i in self.plan:
@@ -482,8 +531,12 @@ class Kurgu:
                         img = Image.blend(eski, img, smooth((zt - bas) / 0.5))
                 img = Image.fromarray((np.asarray(img.convert("RGB"), np.float32) * self.vinyet)
                                       .astype(np.uint8)).convert("RGBA")
-                self.yazi(img, (self.kenar, (140 if self.dikey else 70) * s), et, self.f["etiket"],
-                          (225, 225, 225), clamp((zt - bas - 0.4) / 0.5) * clamp((son - zt - 0.2) / 0.3))
+                sehir, tarih = [p.strip() for p in et.split("·")]
+                ea = clamp((zt - bas - 0.4) / 0.6) * clamp((son - zt - 0.2) / 0.3)
+                ey = (170 if self.dikey else 92) * s
+                self.yazi(img, (self.kenar, ey), sehir, self.f["sehir"], (232, 228, 220), ea, True, "ls", iz=0.32)
+                self.yazi(img, (self.kenar, ey + 40 * s), tarih_duz(tarih),
+                          self.f["tarih"], (200, 196, 188), ea, True, "ls")
                 break
         for b0, b1 in (("B", "B_son"), ("D", "D_son"), ("E", "E_son")):
             if T[b0] <= zt < T[b1]:
@@ -513,10 +566,9 @@ def kunye_olustur():
             lis = {"Public domain": "VOA, kamu malı"}.get(v["lisans"], v["lisans"])
             yazar = re.sub(r"\s*(\(VOA\)|\(Voice of America\)|/VOA)", "", " ".join(v["yazar"].split()))
             gruplar.setdefault(lis, set()).add(yazar)
-    satirlar = ["FOTOĞRAFLAR  ·  Wikimedia Commons"]
-    satirlar += [f"{', '.join(sorted(y))} ({lis})" for lis, y in gruplar.items()]
-    satirlar.append("MÜZİK  ·  “Heartbreaking” Kevin MacLeod (incompetech.com), CC BY 4.0")
-    return satirlar
+    foto = [f"{', '.join(sorted(y))} ({lis})" for lis, y in gruplar.items()] + ["Kaynak: Wikimedia Commons"]
+    return [("FOTOĞRAFLAR", foto),
+            ("MÜZİK", ["“Heartbreaking” — Kevin MacLeod (incompetech.com), CC BY 4.0"])]
 
 
 KUNYE = kunye_olustur()
